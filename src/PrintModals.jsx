@@ -136,23 +136,29 @@ export function PrintA4Modal({ doc, projectInfo, onClose }) {
                 thoi_gian_can: '',
                 items: []
               };
+
+              // Tìm chuỗi JSON trong Ghi_Chu_Anh của phiếu (nằm ở dòng đầu tiên của Ma_Phieu)
+              const rawMetaStr = String(item._rawMetaJson || item.Ghi_Chu_Anh || '').trim();
               try {
-                if (typeof item.Ghi_Chu_Anh === 'string' && item.Ghi_Chu_Anh.trim().startsWith('{')) {
-                  meta = { ...meta, ...JSON.parse(item.Ghi_Chu_Anh) };
+                if (rawMetaStr.startsWith('{')) {
+                  const parsed = JSON.parse(rawMetaStr);
+                  meta = { ...meta, ...parsed };
                 }
               } catch {}
 
-              // Nếu có mảng nhiều dòng đã gom từ App.jsx thì ưu tiên dùng để không sót vật tư
-              if (Array.isArray(item._groupedItems) && item._groupedItems.length > 0 && meta.items.length < item._groupedItems.length) {
-                meta.items = item._groupedItems;
-              } else if (meta.items.length === 0) {
-                meta.items = [{
-                  ten: item.Ma_Doi_Tuong,
-                  quy_cach: '',
-                  dvt: '',
-                  sl: item.So_Luong,
-                  ghi_chu: typeof item.Ghi_Chu_Anh === 'string' && !item.Ghi_Chu_Anh.startsWith('{') ? item.Ghi_Chu_Anh : ''
-                }];
+              // Chỉ dùng _groupedItems làm dự phòng nếu phiếu cũ hoàn toàn không có JSON meta.items
+              if (!Array.isArray(meta.items) || meta.items.length === 0) {
+                if (Array.isArray(item._groupedItems) && item._groupedItems.length > 0) {
+                  meta.items = item._groupedItems;
+                } else {
+                  meta.items = [{
+                    ten: item.Ma_Doi_Tuong || '',
+                    quy_cach: '',
+                    dvt: '',
+                    sl: item.So_Luong || '',
+                    ghi_chu: !rawMetaStr.startsWith('{') ? rawMetaStr : ''
+                  }];
+                }
               }
 
               // Chuẩn hóa ngày tháng theo giờ Việt Nam (tránh lỗi 23T17:00:00.000Z)

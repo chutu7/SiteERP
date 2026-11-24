@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   ClipboardList, PackagePlus, Truck, CheckSquare, Wifi, WifiOff,
   RefreshCw, Camera, Plus, Trash2, LogOut, Send, CheckCircle2, XCircle,
-  Printer, FileText, KeyRound
+  Printer, FileText, KeyRound, Pencil
 } from 'lucide-react';
 import { PrintA4Modal, ChangePasswordModal, SEPITECH_LOGO_URL } from './PrintModals';
 
@@ -83,6 +83,7 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState('');
   const [toast, setToast] = useState(null);
   const [printDoc, setPrintDoc] = useState(null);
+  const [editingTx, setEditingTx] = useState(null);
   const [showChangePass, setShowChangePass] = useState(false);
 
   useEffect(() => {
@@ -290,7 +291,20 @@ export default function App() {
 
       <main className="p-3 no-print">
         {activeTab === 'NHAT_KY' && <DailyLogForm project={selectedProject} projectObj={currentProjectObj} user={currentUser} nhatKyList={masterData.nhatKyGanDay} onSubmit={submitAction} />}
-        {activeTab === 'VAT_TU' && <MaterialRequestForm project={selectedProject} user={currentUser} vatTuList={masterData.vatTu} onSubmit={submitAction} />}
+        {activeTab === 'VAT_TU' && (
+          <MaterialRequestForm
+            project={selectedProject}
+            user={currentUser}
+            vatTuList={masterData.vatTu}
+            editingTx={editingTx}
+            onCancelEdit={() => setEditingTx(null)}
+            onSubmit={async (action, payload) => {
+              const ok = await submitAction(action, payload);
+              if (ok && editingTx) setEditingTx(null);
+              return ok;
+            }}
+          />
+        )}
         {activeTab === 'THIET_BI' && <EquipmentTransferForm project={selectedProject} user={currentUser} duAnList={masterData.duAn} thietBiList={masterData.thietBi} onSubmit={submitAction} />}
         {activeTab === 'HO_SO' && (
           <DocumentArchive
@@ -299,6 +313,10 @@ export default function App() {
             nhatKyList={masterData.nhatKyGanDay}
             giaoDichList={masterData.giaoDichGanDay}
             onPrint={(type, item) => setPrintDoc({ type, item })}
+            onEdit={(tx) => {
+              setEditingTx(tx);
+              setActiveTab('VAT_TU');
+            }}
             onDelete={submitAction}
           />
         )}
@@ -506,7 +524,8 @@ function DailyLogForm({ project, projectObj, user, nhatKyList, onSubmit }) {
 // ============================================================================
 // FORM PHIẾU ĐỀ XUẤT VẬT TƯ CHUẨN SEPITECH
 // ============================================================================
-function MaterialRequestForm({ project, user, vatTuList, onSubmit }) {
+function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit, onSubmit }){
+
   const [loai, setLoai] = useState('YEU_CAU_VAT_TU');
   const [phongBan, setPhongBan] = useState('Ban Điều Hành Dự Án');
   const [sdt, setSdt] = useState('');
@@ -517,7 +536,29 @@ function MaterialRequestForm({ project, user, vatTuList, onSubmit }) {
   const [showAddNew, setShowAddNew] = useState(false);
   const [newTenVT, setNewTenVT] = useState('');
   const [newDVT, setNewDVT] = useState('kg');
+}
+useEffect(() => {
+    if (editingTx) {
+      setLoai(editingTx.Loai_Giao_Dich || 'YEU_CAU_VAT_TU');
+      let meta = {};
+      try {
+        const raw = String(editingTx._rawMetaJson || editingTx.Ghi_Chu_Anh || '').trim();
+        if (raw.startsWith('{')) meta = JSON.parse(raw);
+      } catch {}
 
+      setPhongBan(meta.phong_ban || 'Ban Điều Hành Dự Án');
+      setSdt(meta.sdt || '');
+      setMucDich(meta.muc_dich || '');
+      if (meta.thoi_gian_can && meta.thoi_gian_can.includes('/')) {
+        setThoiGianCan(meta.thoi_gian_can.split('/').reverse().join('-'));
+      }
+      if (Array.isArray(meta.items) && meta.items.length > 0) {
+        setItems(meta.items);
+      } else if (Array.isArray(editingTx._groupedItems) && editingTx._groupedItems.length > 0) {
+        setItems(editingTx._groupedItems);
+      }
+    }
+  }, [editingTx]);
   const handleRowChange = (idx, field, val) => {
     const copy = [...items];
     copy[idx][field] = val;
@@ -546,14 +587,25 @@ function MaterialRequestForm({ project, user, vatTuList, onSubmit }) {
     const validItems = items.filter((it) => it.ten.trim() !== '' && Number(it.sl) > 0);
     if (validItems.length === 0) return alert('Vui lòng nhập ít nhất 1 dòng vật tư có tên và số lượng hợp lệ!');
     const formattedDateCan = thoiGianCan.includes('-') ? thoiGianCan.split('-').reverse().join('/') : thoiGianCan;
-    const ok = await onSubmit('CREATE_TRANSACTION', {
-      Loai_Giao_Dich: loai, Tu_Kho: loai === 'NHAP_KHO' ? 'NHA_CUNG_CAP' : 'KHO_TONG', Den_Kho: project,
-      Phong_Ban: phongBan, So_Dien_Thoai: sdt, Muc_Dich_Su_Dung: mucDich, Thoi_Gian_Can: formattedDateCan,
-      items: validItems, Ma_Doi_Tuong: validItems[0].ten, So_Luong: validItems[0].sl,
-      Ghi_Chu: mucDich, imageBase64: image, Nguoi_Tao: user.Ho_Ten, Vai_Tro: user.Vai_Tro
+    const actionName = editingTx ? 'EDIT_TRANSACTION' : 'CREATE_TRANSACTION';
+    const ok = await onSubmit(actionName, {
+      Ma_Phieu: editingTx?.Ma_Phieu,
+      Nguoi_Yeu_Cau: user.Ho_Ten,
+      Loai_Giao_Dich: loai,
+      Tu_Kho: loai === 'NHAP_KHO' ? 'NHA_CUNG_CAP' : 'KHO_TONG',
+      Den_Kho: project,
+      Phong_Ban: phongBan,
+      So_Dien_Thoai: sdt,
+      Muc_Dich_Su_Dung: mucDich,
+      Thoi_Gian_Can: formattedDateCan,
+      items: validItems,
+      Ma_Doi_Tuong: validItems[0].ten,
+      So_Luong: validItems[0].sl,
+      Ghi_Chu: mucDich,
+      imageBase64: image,
+      Nguoi_Tao: editingTx ? editingTx.Nguoi_Tao : user.Ho_Ten,
+      Vai_Tro: user.Vai_Tro
     });
-    if (ok) { setItems([{ ten: '', quy_cach: '', dvt: 'cái', sl: '', ghi_chu: '' }]); setImage(''); }
-  };
 
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
@@ -682,7 +734,7 @@ function EquipmentTransferForm({ project, user, duAnList, thietBiList, onSubmit 
 // ============================================================================
 // LỊCH SỬ HỒ SƠ, XÓA PHIẾU & IN PDF KHỔ A4
 // ============================================================================
-function DocumentArchive({ project, user, nhatKyList, giaoDichList, onPrint, onDelete }) {
+function DocumentArchive({ project, user, nhatKyList, giaoDichList, Pencil, onPrint, onDelete }) {
   const [searchTerm, setSearchTerm] = useState('');
   const keyword = searchTerm.trim().toLowerCase();
 
@@ -695,25 +747,32 @@ function DocumentArchive({ project, user, nhatKyList, giaoDichList, onPrint, onD
   giaoDichList
     .filter((g) => g.Den_Kho === project || g.Tu_Kho === project)
     .forEach((g) => {
+      const noteStr = String(g.Ghi_Chu_Anh || '').trim();
+      const isJsonMeta = noteStr.startsWith('{');
+
       if (!uniqueTxMap.has(g.Ma_Phieu)) {
         uniqueTxMap.set(g.Ma_Phieu, {
           ...g,
+          _rawMetaJson: isJsonMeta ? noteStr : '',
           _groupedItems: [{
             ten: g.Ma_Doi_Tuong,
             quy_cach: '',
             dvt: '',
             sl: g.So_Luong,
-            ghi_chu: typeof g.Ghi_Chu_Anh === 'string' && !g.Ghi_Chu_Anh.startsWith('{') ? g.Ghi_Chu_Anh : ''
+            ghi_chu: !isJsonMeta ? noteStr : ''
           }]
         });
       } else {
         const existing = uniqueTxMap.get(g.Ma_Phieu);
+        if (isJsonMeta && !existing._rawMetaJson) {
+          existing._rawMetaJson = noteStr;
+        }
         existing._groupedItems.push({
           ten: g.Ma_Doi_Tuong,
           quy_cach: '',
           dvt: '',
           sl: g.So_Luong,
-          ghi_chu: typeof g.Ghi_Chu_Anh === 'string' && !g.Ghi_Chu_Anh.startsWith('{') ? g.Ghi_Chu_Anh : ''
+          ghi_chu: !isJsonMeta ? noteStr : ''
         });
       }
     });
@@ -801,10 +860,15 @@ function DocumentArchive({ project, user, nhatKyList, giaoDichList, onPrint, onD
                   <div className="text-[10px] text-slate-400">Ngày: {formatShortDate(tx.Ngay_Chung_Tu)} • {tx.Nguoi_Tao}</div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                   <button onClick={() => onPrint('PHIEU', tx)} className="bg-emerald-50 text-emerald-900 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1">
                     <Printer size={14} /> A4
                   </button>
+                  {canDelete && tx.Loai_Giao_Dich !== 'DIEU_CHUYEN' && (
+                    <button onClick={() => onEdit(tx)} title="Sửa phiếu này" className="bg-amber-50 text-amber-700 border border-amber-200 p-1.5 rounded-lg hover:bg-amber-100">
+                      <Pencil size={14} />
+                    </button>
+                  )}
                   {canDelete && (
                     <button onClick={() => handleDeleteClick(tx)} title="Xóa phiếu này" className="bg-red-50 text-red-600 border border-red-200 p-1.5 rounded-lg hover:bg-red-100">
                       <Trash2 size={14} />
