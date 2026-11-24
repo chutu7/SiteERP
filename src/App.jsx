@@ -524,8 +524,7 @@ function DailyLogForm({ project, projectObj, user, nhatKyList, onSubmit }) {
 // ============================================================================
 // FORM PHIẾU ĐỀ XUẤT VẬT TƯ CHUẨN SEPITECH
 // ============================================================================
-function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit, onSubmit }){
-
+function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit, onSubmit }) {
   const [loai, setLoai] = useState('YEU_CAU_VAT_TU');
   const [phongBan, setPhongBan] = useState('Ban Điều Hành Dự Án');
   const [sdt, setSdt] = useState('');
@@ -536,8 +535,9 @@ function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit
   const [showAddNew, setShowAddNew] = useState(false);
   const [newTenVT, setNewTenVT] = useState('');
   const [newDVT, setNewDVT] = useState('kg');
-}
-useEffect(() => {
+
+  // ---> DÁN ĐOẠN USEEFFECT VÀO ĐÂY <---
+  useEffect(() => {
     if (editingTx) {
       setLoai(editingTx.Loai_Giao_Dich || 'YEU_CAU_VAT_TU');
       let meta = {};
@@ -559,6 +559,10 @@ useEffect(() => {
       }
     }
   }, [editingTx]);
+
+  // Bên dưới là các hàm xử lý tiếp theo:
+  const handleRowChange = (idx, field, val) => {
+    // ...
   const handleRowChange = (idx, field, val) => {
     const copy = [...items];
     copy[idx][field] = val;
