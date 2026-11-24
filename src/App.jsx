@@ -521,8 +521,8 @@ function DailyLogForm({ project, projectObj, user, nhatKyList, onSubmit }) {
   );
 }
 
-// ============================================================================
-// FORM PHIẾU ĐỀ XUẤT VẬT TƯ CHUẨN SEPITECH
+/// ============================================================================
+// FORM PHIẾU ĐỀ XUẤT VẬT TƯ CHUẨN SEPITECH (HỖ TRỢ THÊM MỚI & SỬA PHIẾU)
 // ============================================================================
 function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit, onSubmit }) {
   const [loai, setLoai] = useState('YEU_CAU_VAT_TU');
@@ -536,7 +536,6 @@ function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit
   const [newTenVT, setNewTenVT] = useState('');
   const [newDVT, setNewDVT] = useState('kg');
 
-  // ---> DÁN ĐOẠN USEEFFECT VÀO ĐÂY <---
   useEffect(() => {
     if (editingTx) {
       setLoai(editingTx.Loai_Giao_Dich || 'YEU_CAU_VAT_TU');
@@ -560,15 +559,15 @@ function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit
     }
   }, [editingTx]);
 
-  // Bên dưới là các hàm xử lý tiếp theo:
-  const handleRowChange = (idx, field, val) => {
-    // ...
   const handleRowChange = (idx, field, val) => {
     const copy = [...items];
     copy[idx][field] = val;
     if (field === 'ten') {
       const matched = vatTuList.find((v) => v.Ten_Vat_Tu === val || `${v.Ma_Vat_Tu} - ${v.Ten_Vat_Tu}` === val);
-      if (matched) { copy[idx].ten = matched.Ten_Vat_Tu; copy[idx].dvt = matched.Don_Vi_Tinh; }
+      if (matched) {
+        copy[idx].ten = matched.Ten_Vat_Tu;
+        copy[idx].dvt = matched.Don_Vi_Tinh;
+      }
     }
     setItems(copy);
   };
@@ -581,7 +580,12 @@ function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit
 
   const handleQuickAddVT = async () => {
     if (!newTenVT.trim()) return;
-    await onSubmit('ADD_MASTER_ITEM', { type: 'VAT_TU', Ma_Vat_Tu: toCodeNoDiacritics(newTenVT), Ten_Vat_Tu: newTenVT.trim(), Don_Vi_Tinh: newDVT });
+    await onSubmit('ADD_MASTER_ITEM', {
+      type: 'VAT_TU',
+      Ma_Vat_Tu: toCodeNoDiacritics(newTenVT),
+      Ten_Vat_Tu: newTenVT.trim(),
+      Don_Vi_Tinh: newDVT
+    });
     setNewTenVT('');
     setShowAddNew(false);
   };
@@ -591,6 +595,7 @@ function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit
     const validItems = items.filter((it) => it.ten.trim() !== '' && Number(it.sl) > 0);
     if (validItems.length === 0) return alert('Vui lòng nhập ít nhất 1 dòng vật tư có tên và số lượng hợp lệ!');
     const formattedDateCan = thoiGianCan.includes('-') ? thoiGianCan.split('-').reverse().join('/') : thoiGianCan;
+
     const actionName = editingTx ? 'EDIT_TRANSACTION' : 'CREATE_TRANSACTION';
     const ok = await onSubmit(actionName, {
       Ma_Phieu: editingTx?.Ma_Phieu,
@@ -611,11 +616,35 @@ function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit
       Vai_Tro: user.Vai_Tro
     });
 
+    if (ok) {
+      setItems([{ ten: '', quy_cach: '', dvt: 'cái', sl: '', ghi_chu: '' }]);
+      setImage('');
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
+      {editingTx && (
+        <div className="bg-amber-100 border border-amber-300 text-amber-900 px-3 py-2 rounded-xl flex justify-between items-center text-xs">
+          <span>Đang sửa phiếu: <strong>{editingTx.Ma_Phieu}</strong></span>
+          <button
+            type="button"
+            onClick={() => {
+              onCancelEdit();
+              setItems([{ ten: '', quy_cach: '', dvt: 'cái', sl: '', ghi_chu: '' }]);
+            }}
+            className="underline font-bold text-red-700"
+          >
+            Hủy sửa
+          </button>
+        </div>
+      )}
+
       <div className="flex justify-between items-center border-b pb-2">
         <h2 className="font-bold text-blue-950 text-base">Phiếu Đề Xuất Vật Tư</h2>
-        <button type="button" onClick={() => setShowAddNew(!showAddNew)} className="text-xs text-blue-800 font-bold flex items-center gap-0.5"><Plus size={14} /> Thêm DM vật tư</button>
+        <button type="button" onClick={() => setShowAddNew(!showAddNew)} className="text-xs text-blue-800 font-bold flex items-center gap-0.5">
+          <Plus size={14} /> Thêm DM vật tư
+        </button>
       </div>
 
       {showAddNew && (
@@ -655,14 +684,22 @@ function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit
       <div className="space-y-2">
         <div className="flex justify-between items-center">
           <label className="text-xs font-bold text-slate-700">Danh sách vật tư ({items.length} mục)</label>
-          <button type="button" onClick={() => setItems([...items, { ten: '', quy_cach: '', dvt: 'cái', sl: '', ghi_chu: '' }])} className="text-xs bg-blue-100 text-blue-900 font-bold px-2.5 py-1 rounded-lg flex items-center gap-1"><Plus size={14} /> Thêm dòng</button>
+          <button type="button" onClick={() => setItems([...items, { ten: '', quy_cach: '', dvt: 'cái', sl: '', ghi_chu: '' }])} className="text-xs bg-blue-100 text-blue-900 font-bold px-2.5 py-1 rounded-lg flex items-center gap-1">
+            <Plus size={14} /> Thêm dòng
+          </button>
         </div>
-        <datalist id="vat-tu-suggestions">{vatTuList.map((v) => (<option key={v.Ma_Vat_Tu} value={v.Ten_Vat_Tu} />))}</datalist>
+        <datalist id="vat-tu-suggestions">
+          {vatTuList.map((v) => (<option key={v.Ma_Vat_Tu} value={v.Ten_Vat_Tu} />))}
+        </datalist>
         {items.map((it, idx) => (
           <div key={idx} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2">
             <div className="flex justify-between items-center">
               <span className="text-[11px] font-bold text-blue-900">Mục #{idx + 1}</span>
-              {items.length > 1 && <button type="button" onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500 text-xs flex items-center gap-0.5"><Trash2 size={13} /> Xóa</button>}
+              {items.length > 1 && (
+                <button type="button" onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500 text-xs flex items-center gap-0.5">
+                  <Trash2 size={13} /> Xóa
+                </button>
+              )}
             </div>
             <input type="text" list="vat-tu-suggestions" placeholder="Tên vật tư..." value={it.ten} onChange={(e) => handleRowChange(idx, 'ten', e.target.value)} className="w-full border rounded-lg p-2 text-xs bg-white font-medium" />
             <div className="grid grid-cols-3 gap-1.5">
@@ -680,7 +717,9 @@ function MaterialRequestForm({ project, user, vatTuList, editingTx, onCancelEdit
         <input type="file" accept="image/*" capture="environment" onChange={handleImage} className="text-xs" />
       </div>
 
-      <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow"><Send size={18} /> Gửi Phiếu Đề Xuất</button>
+      <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow">
+        <Send size={18} /> {editingTx ? 'Lưu cập nhật phiếu' : 'Gửi Phiếu Đề Xuất'}
+      </button>
     </form>
   );
 }
@@ -736,9 +775,9 @@ function EquipmentTransferForm({ project, user, duAnList, thietBiList, onSubmit 
 }
 
 // ============================================================================
-// LỊCH SỬ HỒ SƠ, XÓA PHIẾU & IN PDF KHỔ A4
+// LỊCH SỬ HỒ SƠ, SỬA/XÓA PHIẾU & IN PDF KHỔ A4
 // ============================================================================
-function DocumentArchive({ project, user, nhatKyList, giaoDichList, Pencil, onPrint, onDelete }) {
+function DocumentArchive({ project, user, nhatKyList, giaoDichList, onPrint, onEdit, onDelete }) {
   const [searchTerm, setSearchTerm] = useState('');
   const keyword = searchTerm.trim().toLowerCase();
 
@@ -746,7 +785,6 @@ function DocumentArchive({ project, user, nhatKyList, giaoDichList, Pencil, onPr
     .filter((n) => n.Ma_Du_An === project)
     .filter((n) => !keyword || String(n.Ma_Nhat_Ky || '').toLowerCase().includes(keyword) || String(n.Ngay_Thi_Cong || '').toLowerCase().includes(keyword));
 
-  // Gom tất cả các dòng vật tư có cùng Ma_Phieu thành 1 phiếu hoàn chỉnh
   const uniqueTxMap = new Map();
   giaoDichList
     .filter((g) => g.Den_Kho === project || g.Tu_Kho === project)
@@ -864,7 +902,7 @@ function DocumentArchive({ project, user, nhatKyList, giaoDichList, Pencil, onPr
                   <div className="text-[10px] text-slate-400">Ngày: {formatShortDate(tx.Ngay_Chung_Tu)} • {tx.Nguoi_Tao}</div>
                 </div>
 
-              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button onClick={() => onPrint('PHIEU', tx)} className="bg-emerald-50 text-emerald-900 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1">
                     <Printer size={14} /> A4
                   </button>
@@ -901,39 +939,47 @@ function ApprovalList({ transactions, user, onApprove }) {
   return (
     <div className="space-y-3">
       <h2 className="font-bold text-blue-950 text-base">Phiếu chờ phê duyệt ({pending.length})</h2>
-      {pending.length === 0 ? <div className="bg-white rounded-2xl p-6 text-center text-slate-500 text-sm">Tất cả phiếu đề xuất đều đã được xử lý!</div> : pending.map((item) => {
-        let metaItems = [];
-        try {
-          if (typeof item.Ghi_Chu_Anh === 'string' && item.Ghi_Chu_Anh.trim().startsWith('{')) {
-            const parsed = JSON.parse(item.Ghi_Chu_Anh);
-            if (Array.isArray(parsed.items)) metaItems = parsed.items;
-          }
-        } catch {}
+      {pending.length === 0 ? (
+        <div className="bg-white rounded-2xl p-6 text-center text-slate-500 text-sm">Tất cả phiếu đề xuất đều đã được xử lý!</div>
+      ) : (
+        pending.map((item) => {
+          let metaItems = [];
+          try {
+            if (typeof item.Ghi_Chu_Anh === 'string' && item.Ghi_Chu_Anh.trim().startsWith('{')) {
+              const parsed = JSON.parse(item.Ghi_Chu_Anh);
+              if (Array.isArray(parsed.items)) metaItems = parsed.items;
+            }
+          } catch {}
 
-        return (
-          <div key={item.Ma_Phieu} className="bg-white rounded-2xl p-4 shadow-sm border-l-4 border-amber-500 space-y-2">
-            <div className="flex justify-between items-start">
-              <span className="font-bold text-sm text-blue-950">{item.Ma_Phieu}</span>
-              <span className="text-[11px] bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded">{item.Loai_Giao_Dich}</span>
+          return (
+            <div key={item.Ma_Phieu} className="bg-white rounded-2xl p-4 shadow-sm border-l-4 border-amber-500 space-y-2">
+              <div className="flex justify-between items-start">
+                <span className="font-bold text-sm text-blue-950">{item.Ma_Phieu}</span>
+                <span className="text-[11px] bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded">{item.Loai_Giao_Dich}</span>
+              </div>
+              <div className="text-xs text-slate-700 space-y-1">
+                <div><strong>Công trình:</strong> {item.Den_Kho} (Từ: {item.Tu_Kho || 'N/A'})</div>
+                <div><strong>Người lập:</strong> {item.Nguoi_Tao} ({item.Ngay_Chung_Tu})</div>
+                {metaItems.length > 0 ? (
+                  <div className="bg-slate-50 p-2 rounded-lg border mt-1 space-y-1">
+                    {metaItems.map((m, idx) => (<div key={idx}>• {m.ten} ({m.quy_cach || '-'}): <strong>{m.sl} {m.dvt}</strong></div>))}
+                  </div>
+                ) : (
+                  <div><strong>Đối tượng:</strong> {item.Ma_Doi_Tuong} — SL: <strong className="text-blue-900">{item.So_Luong}</strong></div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <button onClick={() => onApprove('APPROVE_TRANSACTION', { Ma_Phieu: item.Ma_Phieu, Trang_Thai_Moi: 'Da_Duyet', Nguoi_Duyet: `${user.Ma_NV} - ${user.Ho_Ten}` })} className="bg-emerald-600 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1">
+                  <CheckCircle2 size={16} /> Phê duyệt
+                </button>
+                <button onClick={() => onApprove('APPROVE_TRANSACTION', { Ma_Phieu: item.Ma_Phieu, Trang_Thai_Moi: 'Tu_Choi', Nguoi_Duyet: `${user.Ma_NV} - ${user.Ho_Ten}` })} className="bg-red-100 text-red-700 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1">
+                  <XCircle size={16} /> Từ chối
+                </button>
+              </div>
             </div>
-            <div className="text-xs text-slate-700 space-y-1">
-              <div><strong>Công trình:</strong> {item.Den_Kho} (Từ: {item.Tu_Kho || 'N/A'})</div>
-              <div><strong>Người lập:</strong> {item.Nguoi_Tao} ({item.Ngay_Chung_Tu})</div>
-              {metaItems.length > 0 ? (
-                <div className="bg-slate-50 p-2 rounded-lg border mt-1 space-y-1">
-                  {metaItems.map((m, idx) => (<div key={idx}>• {m.ten} ({m.quy_cach || '-'}): <strong>{m.sl} {m.dvt}</strong></div>))}
-                </div>
-              ) : (
-                <div><strong>Đối tượng:</strong> {item.Ma_Doi_Tuong} — SL: <strong className="text-blue-900">{item.So_Luong}</strong></div>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              <button onClick={() => onApprove('APPROVE_TRANSACTION', { Ma_Phieu: item.Ma_Phieu, Trang_Thai_Moi: 'Da_Duyet', Nguoi_Duyet: `${user.Ma_NV} - ${user.Ho_Ten}` })} className="bg-emerald-600 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1"><CheckCircle2 size={16} /> Phê duyệt</button>
-              <button onClick={() => onApprove('APPROVE_TRANSACTION', { Ma_Phieu: item.Ma_Phieu, Trang_Thai_Moi: 'Tu_Choi', Nguoi_Duyet: `${user.Ma_NV} - ${user.Ho_Ten}` })} className="bg-red-100 text-red-700 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1"><XCircle size={16} /> Từ chối</button>
-            </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 }
