@@ -1147,9 +1147,19 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
   const { type, item } = doc;
   let tasks = [];
   let resources = {};
-
   let weatherObj = { sang: '', chieu: '', toi: '', thoi_gian_mua: '' };
+
   if (type === 'NHAT_KY') {
+    try {
+      tasks = typeof item.Cong_Viec_Thuc_Hien === 'string'
+        ? JSON.parse(item.Cong_Viec_Thuc_Hien)
+        : (item.Cong_Viec_Thuc_Hien || []);
+    } catch {}
+    try {
+      resources = typeof item.Nhan_Luc_May_Moc === 'string'
+        ? JSON.parse(item.Nhan_Luc_May_Moc)
+        : (item.Nhan_Luc_May_Moc || {});
+    } catch {}
     try {
       weatherObj = typeof item.Thoi_Tiet === 'string' && item.Thoi_Tiet.startsWith('{')
         ? JSON.parse(item.Thoi_Tiet)
@@ -1161,7 +1171,7 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
     <div className="fixed inset-0 bg-black/75 z-50 overflow-y-auto p-2 flex flex-col items-center">
       {/* Thanh công cụ trên cùng (ẩn khi in) */}
       <div className="w-full max-w-2xl bg-slate-800 text-white p-3 rounded-t-xl flex justify-between items-center no-print">
-        <span className="text-xs font-bold">Xem trước bản in khổ A4 (Bấm In &gt; Lưu thành PDF để gửi Zalo)</span>
+        <span className="text-xs font-bold">Xem trước bản in khổ A4 (Bấm In > Lưu thành PDF để gửi Zalo)</span>
         <div className="flex gap-2">
           <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1">
             <Printer size={15} /> In / Lưu PDF
@@ -1259,4 +1269,59 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
               </div>
             </div>
           </>
-        ) : ( ... )}
+        ) : (
+          <>
+            <h1 className="text-center font-bold text-base uppercase mt-2">
+              {item.Loai_Giao_Dich === 'DIEU_CHUYEN' ? 'LỆNH ĐIỀU CHUYỂN THIẾT BỊ / VẬT TƯ' : 'PHIẾU ĐỀ XUẤT / XÁC NHẬN VẬT TƯ'}
+            </h1>
+            <p className="text-center text-xs mb-4">Số phiếu: <strong>{item.Ma_Phieu}</strong> — Ngày: {item.Ngay_Chung_Tu}</p>
+
+            <div className="space-y-2 text-xs mb-4">
+              <div><strong>Dự án / Công trường nhận:</strong> {item.Den_Kho}</div>
+              <div><strong>Kho / Công trường xuất:</strong> {item.Tu_Kho || 'Kho Tổng / Nhà cung cấp'}</div>
+              <div><strong>Người lập phiếu:</strong> {item.Nguoi_Tao}</div>
+              <div><strong>Trạng thái phê duyệt:</strong> {item.Trang_Thai_Duyet}</div>
+            </div>
+
+            <table className="w-full border-collapse border border-black text-xs mb-4">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="border border-black p-1.5 w-10">STT</th>
+                  <th className="border border-black p-1.5 text-left">Mã Vật tư / Thiết bị</th>
+                  <th className="border border-black p-1.5 w-24">Số lượng</th>
+                  <th className="border border-black p-1.5 text-left">Ghi chú / Hạng mục</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="border border-black p-1.5 text-center">1</td>
+                  <td className="border border-black p-1.5 font-bold">{item.Ma_Doi_Tuong}</td>
+                  <td className="border border-black p-1.5 text-center font-bold">{item.So_Luong}</td>
+                  <td className="border border-black p-1.5">{item.Ghi_Chu_Anh || ''}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="grid grid-cols-3 text-center text-xs mt-8">
+              <div>
+                <div className="font-bold uppercase">NGƯỜI LẬP PHIẾU</div>
+                <div className="italic text-[11px]">(Ký, ghi rõ họ tên)</div>
+                <div className="h-20"></div>
+              </div>
+              <div>
+                <div className="font-bold uppercase">THỦ KHO / CHỈ HUY TRƯỞNG</div>
+                <div className="italic text-[11px]">(Ký, ghi rõ họ tên)</div>
+                <div className="h-20"></div>
+              </div>
+              <div>
+                <div className="font-bold uppercase">BAN GIÁM ĐỐC DUYỆT</div>
+                <div className="italic text-[11px]">(Ký, đóng dấu)</div>
+                <div className="h-20"></div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
