@@ -292,7 +292,16 @@ export default function App() {
         {activeTab === 'NHAT_KY' && <DailyLogForm project={selectedProject} projectObj={currentProjectObj} user={currentUser} nhatKyList={masterData.nhatKyGanDay} onSubmit={submitAction} />}
         {activeTab === 'VAT_TU' && <MaterialRequestForm project={selectedProject} user={currentUser} vatTuList={masterData.vatTu} onSubmit={submitAction} />}
         {activeTab === 'THIET_BI' && <EquipmentTransferForm project={selectedProject} user={currentUser} duAnList={masterData.duAn} thietBiList={masterData.thietBi} onSubmit={submitAction} />}
-        {activeTab === 'HO_SO' && <DocumentArchive project={selectedProject} nhatKyList={masterData.nhatKyGanDay} giaoDichList={masterData.giaoDichGanDay} onPrint={(type, item) => setPrintDoc({ type, item })} />}
+        {activeTab === 'HO_SO' && (
+          <DocumentArchive
+            project={selectedProject}
+            user={currentUser}
+            nhatKyList={masterData.nhatKyGanDay}
+            giaoDichList={masterData.giaoDichGanDay}
+            onPrint={(type, item) => setPrintDoc({ type, item })}
+            onDelete={submitAction}
+          />
+        )}
         {activeTab === 'DUYET' && canApprove && <ApprovalList transactions={masterData.giaoDichGanDay} user={currentUser} onApprove={submitAction} />}
       </main>
 
@@ -671,40 +680,100 @@ function EquipmentTransferForm({ project, user, duAnList, thietBiList, onSubmit 
 }
 
 // ============================================================================
-// LỊCH SỬ HỒ SƠ & IN PDF KHỔ A4
+// LỊCH SỬ HỒ SƠ, XÓA PHIẾU & IN PDF KHỔ A4
 // ============================================================================
-function DocumentArchive({ project, nhatKyList, giaoDichList, onPrint }) {
+function DocumentArchive({ project, user, nhatKyList, giaoDichList, onPrint, onDelete }) {
   const [searchTerm, setSearchTerm] = useState('');
   const keyword = searchTerm.trim().toLowerCase();
 
-  const projectLogs = nhatKyList.filter((n) => n.Ma_Du_An === project)
+  const projectLogs = nhatKyList
+    .filter((n) => n.Ma_Du_An === project)
     .filter((n) => !keyword || String(n.Ma_Nhat_Ky || '').toLowerCase().includes(keyword) || String(n.Ngay_Thi_Cong || '').toLowerCase().includes(keyword));
 
+  // Gom tất cả các dòng vật tư có cùng Ma_Phieu thành 1 phiếu hoàn chỉnh
   const uniqueTxMap = new Map();
-  giaoDichList.filter((g) => g.Den_Kho === project || g.Tu_Kho === project).forEach((g) => {
-    if (!uniqueTxMap.has(g.Ma_Phieu)) uniqueTxMap.set(g.Ma_Phieu, g);
-  });
+  giaoDichList
+    .filter((g) => g.Den_Kho === project || g.Tu_Kho === project)
+    .forEach((g) => {
+      if (!uniqueTxMap.has(g.Ma_Phieu)) {
+        uniqueTxMap.set(g.Ma_Phieu, {
+          ...g,
+          _groupedItems: [{
+            ten: g.Ma_Doi_Tuong,
+            quy_cach: '',
+            dvt: '',
+            sl: g.So_Luong,
+            ghi_chu: typeof g.Ghi_Chu_Anh === 'string' && !g.Ghi_Chu_Anh.startsWith('{') ? g.Ghi_Chu_Anh : ''
+          }]
+        });
+      } else {
+        const existing = uniqueTxMap.get(g.Ma_Phieu);
+        existing._groupedItems.push({
+          ten: g.Ma_Doi_Tuong,
+          quy_cach: '',
+          dvt: '',
+          sl: g.So_Luong,
+          ghi_chu: typeof g.Ghi_Chu_Anh === 'string' && !g.Ghi_Chu_Anh.startsWith('{') ? g.Ghi_Chu_Anh : ''
+        });
+      }
+    });
+
   const projectTx = Array.from(uniqueTxMap.values()).filter((g) =>
-    !keyword || String(g.Ma_Phieu || '').toLowerCase().includes(keyword) || String(g.Ma_Doi_Tuong || '').toLowerCase().includes(keyword) || String(g.Ngay_Chung_Tu || '').toLowerCase().includes(keyword)
+    !keyword ||
+    String(g.Ma_Phieu || '').toLowerCase().includes(keyword) ||
+    g._groupedItems.some((it) => String(it.ten || '').toLowerCase().includes(keyword)) ||
+    String(g.Ngay_Chung_Tu || '').toLowerCase().includes(keyword)
   );
+
+  const handleDeleteClick = (tx) => {
+    if (window.confirm(`Bạn có chắc chắn muốn xóa phiếu ${tx.Ma_Phieu} không?`)) {
+      onDelete('DELETE_TRANSACTION', {
+        Ma_Phieu: tx.Ma_Phieu,
+        Nguoi_Yeu_Cau: user.Ho_Ten,
+        Vai_Tro: user.Vai_Tro
+      });
+    }
+  };
+
+  const formatShortDate = (raw) => {
+    const s = String(raw || '');
+    if (s.includes('T')) {
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    }
+    return s.slice(0, 10);
+  };
 
   return (
     <div className="space-y-4">
-      <input type="text" placeholder="Tìm nhanh theo ngày hoặc mã phiếu..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs shadow-sm outline-none focus:border-blue-800" />
+      <input
+        type="text"
+        placeholder="Tìm nhanh theo ngày hoặc mã phiếu, tên vật tư..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs shadow-sm outline-none focus:border-blue-800"
+      />
+
       <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
         <div className="flex justify-between items-center border-b pb-2">
           <h2 className="font-bold text-blue-950 text-sm">Nhật ký thi công gần đây</h2>
           <span className="text-[11px] text-slate-400">{projectLogs.length} bản ghi</span>
         </div>
-        {projectLogs.length === 0 ? <p className="text-xs text-slate-500 py-2">Không có nhật ký phù hợp.</p> : projectLogs.map((log) => (
-          <div key={log.Ma_Nhat_Ky} className="flex justify-between items-center border-b py-2.5 last:border-0 gap-2">
-            <div className="min-w-0">
-              <div className="font-bold text-xs text-slate-800 truncate">{log.Ma_Nhat_Ky}</div>
-              <div className="text-[11px] text-slate-500">Ngày: {log.Ngay_Thi_Cong}</div>
+        {projectLogs.length === 0 ? (
+          <p className="text-xs text-slate-500 py-2">Không có nhật ký phù hợp.</p>
+        ) : (
+          projectLogs.map((log) => (
+            <div key={log.Ma_Nhat_Ky} className="flex justify-between items-center border-b py-2.5 last:border-0 gap-2">
+              <div className="min-w-0">
+                <div className="font-bold text-xs text-slate-800 truncate">{log.Ma_Nhat_Ky}</div>
+                <div className="text-[11px] text-slate-500">Ngày: {formatShortDate(log.Ngay_Thi_Cong)}</div>
+              </div>
+              <button onClick={() => onPrint('NHAT_KY', log)} className="shrink-0 bg-blue-50 text-blue-900 border border-blue-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1">
+                <Printer size={14} /> Xuất A4
+              </button>
             </div>
-            <button onClick={() => onPrint('NHAT_KY', log)} className="shrink-0 bg-blue-50 text-blue-900 border border-blue-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"><Printer size={14} /> Xuất A4</button>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
@@ -712,18 +781,40 @@ function DocumentArchive({ project, nhatKyList, giaoDichList, onPrint }) {
           <h2 className="font-bold text-blue-950 text-sm">Phiếu Đề Xuất & Điều Chuyển</h2>
           <span className="text-[11px] text-slate-400">{projectTx.length} phiếu</span>
         </div>
-        {projectTx.length === 0 ? <p className="text-xs text-slate-500 py-2">Không có phiếu phù hợp.</p> : projectTx.map((tx) => (
-          <div key={tx.Ma_Phieu} className="flex justify-between items-center border-b py-2.5 last:border-0 gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-bold text-xs text-slate-800">{tx.Ma_Phieu}</span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${tx.Trang_Thai_Duyet === 'Da_Duyet' ? 'bg-emerald-100 text-emerald-800' : tx.Trang_Thai_Duyet === 'Tu_Choi' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>{tx.Trang_Thai_Duyet}</span>
+        {projectTx.length === 0 ? (
+          <p className="text-xs text-slate-500 py-2">Không có phiếu phù hợp.</p>
+        ) : (
+          projectTx.map((tx) => {
+            const canDelete = user.Vai_Tro === 'GIAM_DOC' || String(tx.Nguoi_Tao || '').includes(user.Ho_Ten);
+            const itemSummary = tx._groupedItems.map((it) => `${it.ten} (${it.sl})`).join(', ');
+
+            return (
+              <div key={tx.Ma_Phieu} className="flex justify-between items-center border-b py-2.5 last:border-0 gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold text-xs text-slate-800">{tx.Ma_Phieu}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${tx.Trang_Thai_Duyet === 'Da_Duyet' ? 'bg-emerald-100 text-emerald-800' : tx.Trang_Thai_Duyet === 'Tu_Choi' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
+                      {tx.Trang_Thai_Duyet}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-600 truncate mt-0.5">{itemSummary}</div>
+                  <div className="text-[10px] text-slate-400">Ngày: {formatShortDate(tx.Ngay_Chung_Tu)} • {tx.Nguoi_Tao}</div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => onPrint('PHIEU', tx)} className="bg-emerald-50 text-emerald-900 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1">
+                    <Printer size={14} /> A4
+                  </button>
+                  {canDelete && (
+                    <button onClick={() => handleDeleteClick(tx)} title="Xóa phiếu này" className="bg-red-50 text-red-600 border border-red-200 p-1.5 rounded-lg hover:bg-red-100">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500 truncate mt-0.5">{tx.Ma_Doi_Tuong} • SL: {tx.So_Luong} ({tx.Ngay_Chung_Tu})</div>
-            </div>
-            <button onClick={() => onPrint('PHIEU', tx)} className="shrink-0 bg-emerald-50 text-emerald-900 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"><Printer size={14} /> Xuất A4</button>
-          </div>
-        ))}
+            );
+          })
+        )}
       </div>
     </div>
   );

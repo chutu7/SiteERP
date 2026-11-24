@@ -129,12 +129,12 @@ export function PrintA4Modal({ doc, projectInfo, onClose }) {
         ) : (
           <div className="text-black" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
             {(() => {
-              let meta = {
+             let meta = {
                 phong_ban: 'Ban Điều Hành Dự Án',
                 sdt: '',
                 muc_dich: '',
                 thoi_gian_can: '',
-                items: [{ ten: item.Ma_Doi_Tuong, quy_cach: '', dvt: '', sl: item.So_Luong, ghi_chu: item.Ghi_Chu_Anh || '' }]
+                items: []
               };
               try {
                 if (typeof item.Ghi_Chu_Anh === 'string' && item.Ghi_Chu_Anh.trim().startsWith('{')) {
@@ -142,10 +142,37 @@ export function PrintA4Modal({ doc, projectInfo, onClose }) {
                 }
               } catch {}
 
-              const dateParts = String(item.Ngay_Chung_Tu || '').split('-');
-              const dayStr = dateParts[2] || '...';
-              const monthStr = dateParts[1] || '...';
-              const yearStr = dateParts[0] || '2026';
+              // Nếu có mảng nhiều dòng đã gom từ App.jsx thì ưu tiên dùng để không sót vật tư
+              if (Array.isArray(item._groupedItems) && item._groupedItems.length > 0 && meta.items.length < item._groupedItems.length) {
+                meta.items = item._groupedItems;
+              } else if (meta.items.length === 0) {
+                meta.items = [{
+                  ten: item.Ma_Doi_Tuong,
+                  quy_cach: '',
+                  dvt: '',
+                  sl: item.So_Luong,
+                  ghi_chu: typeof item.Ghi_Chu_Anh === 'string' && !item.Ghi_Chu_Anh.startsWith('{') ? item.Ghi_Chu_Anh : ''
+                }];
+              }
+
+              // Chuẩn hóa ngày tháng theo giờ Việt Nam (tránh lỗi 23T17:00:00.000Z)
+              let dayStr = '...';
+              let monthStr = '...';
+              let yearStr = '2026';
+              const rawDate = String(item.Ngay_Chung_Tu || '');
+              if (rawDate.includes('T')) {
+                const d = new Date(rawDate);
+                if (!isNaN(d.getTime())) {
+                  dayStr = String(d.getDate()).padStart(2, '0');
+                  monthStr = String(d.getMonth() + 1).padStart(2, '0');
+                  yearStr = String(d.getFullYear());
+                }
+              } else if (rawDate.includes('-')) {
+                const parts = rawDate.split('-');
+                yearStr = parts[0] || '2026';
+                monthStr = parts[1] || '...';
+                dayStr = (parts[2] || '...').slice(0, 2);
+              }
 
               return (
                 <>
