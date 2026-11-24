@@ -345,6 +345,7 @@ export default function App() {
             )}
             <button onClick={fetchMasterData} title="Làm mới dữ liệu" className="p-2 bg-blue-900 rounded-lg">
               <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
+            </button>
             <button
               onClick={() => setShowChangePass(true)}
               title="Đổi mật khẩu"
