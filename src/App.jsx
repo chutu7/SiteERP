@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
+iimport {
   ClipboardList, PackagePlus, Truck, CheckSquare, Wifi, WifiOff,
   RefreshCw, Camera, Plus, Trash2, LogOut, Send, CheckCircle2, XCircle,
-  Building2, Printer, FileText, X
+  Building2, Printer, FileText, X, KeyRound
 } from 'lucide-react';
-
 // ============================================================================
 // GIỮ NGUYÊN LINK WEB APP (/exec) CỦA BẠN Ở ĐÂY
 // ============================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbwU3dkJeKZbWIE-iH347USgo9R9FRyG4_chwY3hSyB-8UeHeeZRDmoNevpprXQCxw1p/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzLTFbbGXs6AU8NqYGDKtPCZeLnbwyQslkj-HyoMuli58tXHUhzoudiyszoTz3kjMWu/exec';
 
 const FALLBACK_DB = {
   duAn: [
@@ -95,6 +94,7 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState('');
   const [toast, setToast] = useState(null);
   const [printDoc, setPrintDoc] = useState(null); // Dữ liệu đang mở xem trước bản in A4
+  const [showChangePass, setShowChangePass] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -296,6 +296,23 @@ export default function App() {
           onClose={() => setPrintDoc(null)}
         />
       )}
+{showChangePass && (
+        <ChangePasswordModal
+          user={currentUser}
+          isOnline={isOnline}
+          apiUrl={API_URL}
+          onClose={() => setShowChangePass(false)}
+          onSuccess={(newPin) => {
+            const updatedUser = { ...currentUser, Ma_PIN: newPin };
+            setCurrentUser(updatedUser);
+            localStorage.setItem('erp_current_user', JSON.stringify(updatedUser));
+            fetchMasterData();
+            showToast('Đổi mật khẩu thành công!');
+            setShowChangePass(false);
+          }}
+          onError={(msg) => showToast(msg, 'error')}
+        />
+      )}
 
       {/* HEADER CỐ ĐỊNH */}
       <header className="bg-blue-950 text-white p-3 sticky top-0 z-20 shadow no-print">
@@ -328,6 +345,12 @@ export default function App() {
             )}
             <button onClick={fetchMasterData} title="Làm mới dữ liệu" className="p-2 bg-blue-900 rounded-lg">
               <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
+            <button
+              onClick={() => setShowChangePass(true)}
+              title="Đổi mật khẩu"
+              className="p-2 bg-blue-900 rounded-lg"
+            >
+              <KeyRound size={16} />
             </button>
             <button onClick={handleLogout} title="Đăng xuất" className="p-2 bg-red-900/60 rounded-lg">
               <LogOut size={16} />
@@ -1321,6 +1344,120 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+// ============================================================================
+// COMPONENT 7: CỬA SỔ ĐỔI MẬT KHẨU / MÃ PIN
+// ============================================================================
+function ChangePasswordModal({ user, isOnline, apiUrl, onClose, onSuccess, onError }) {
+  const [oldPin, setOldPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!isOnline) return onError('Cần có mạng Internet để đổi mật khẩu!');
+    if (!oldPin || !newPin) return onError('Vui lòng nhập đầy đủ mật khẩu cũ và mới!');
+    if (newPin !== confirmPin) return onError('Mật khẩu mới nhập lại không khớp!');
+    if (newPin.trim().length < 4) return onError('Mật khẩu mới nên có ít nhất 4 ký tự!');
+
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'CHANGE_PASSWORD',
+          payload: {
+            Ma_NV: user.Ma_NV,
+            oldPin: oldPin.trim(),
+            newPin: newPin.trim()
+          }
+        })
+      });
+      const json = await res.json();
+      if (json.status === 'success') {
+        onSuccess(newPin.trim());
+      } else {
+        onError(json.message || 'Đổi mật khẩu thất bại!');
+      }
+    } catch (err) {
+      onError('Lỗi kết nối máy chủ: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 no-print">
+      <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl space-y-4">
+        <div className="flex justify-between items-center border-b pb-2">
+          <h3 className="font-bold text-blue-950 text-base flex items-center gap-1.5">
+            <KeyRound size={18} /> Đổi mật khẩu ({user.Ma_NV})
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-600">Mật khẩu hiện tại</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              value={oldPin}
+              onChange={(e) => setOldPin(e.target.value)}
+              placeholder="Nhập mật khẩu đang dùng..."
+              className="w-full border rounded-xl p-2.5 text-sm mt-1 outline-none focus:border-blue-800"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-600">Mật khẩu mới</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value)}
+              placeholder="Nhập mật khẩu mới (tối thiểu 4 số)..."
+              className="w-full border rounded-xl p-2.5 text-sm mt-1 outline-none focus:border-blue-800"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-600">Xác nhận mật khẩu mới</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              value={confirmPin}
+              onChange={(e) => setConfirmPin(e.target.value)}
+              placeholder="Nhập lại mật khẩu mới..."
+              className="w-full border rounded-xl p-2.5 text-sm mt-1 outline-none focus:border-blue-800"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold text-xs"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="py-2.5 rounded-xl bg-blue-900 text-white font-bold text-xs disabled:opacity-50"
+            >
+              {loading ? 'Đang lưu...' : 'Lưu mật khẩu mới'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
