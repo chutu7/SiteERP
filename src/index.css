@@ -1,1 +1,24 @@
 @import "tailwindcss";
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-area, #print-area * {
+    visibility: visible;
+  }
+  #print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm;
+    min-height: 297mm;
+    padding: 15mm 15mm 15mm 20mm;
+    background: white;
+    color: black;
+    font-family: "Times New Roman", Times, serif;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
