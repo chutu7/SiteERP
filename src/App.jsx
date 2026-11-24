@@ -8,7 +8,7 @@ import {
 // ============================================================================
 // GIỮ NGUYÊN LINK WEB APP (/exec) CỦA BẠN Ở ĐÂY
 // ============================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbyigJ5-qDfFHALDCGvc2SJiQe-cAfrc1keKMjDtTPmF3XyPKzq94DDINdb10llh8H1X/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwU3dkJeKZbWIE-iH347USgo9R9FRyG4_chwY3hSyB-8UeHeeZRDmoNevpprXQCxw1p/exec';
 
 const FALLBACK_DB = {
   duAn: [
@@ -89,6 +89,7 @@ export default function App() {
     const saved = localStorage.getItem('erp_current_user');
     return saved ? JSON.parse(saved) : null;
   });
+  const [selectedUserId, setSelectedUserId] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [activeTab, setActiveTab] = useState('NHAT_KY'); // NHAT_KY | VAT_TU | THIET_BI | HO_SO | DUYET
   const [selectedProject, setSelectedProject] = useState('');
@@ -204,13 +205,16 @@ export default function App() {
 
   const handleLogin = (e) => {
     e.preventDefault();
-    const user = masterData.nguoiDung.find(u => String(u.Ma_PIN) === pinInput.trim());
+    const targetMaNV = selectedUserId || (masterData.nguoiDung[0]?.Ma_NV || '');
+    const user = masterData.nguoiDung.find(
+      u => u.Ma_NV === targetMaNV && String(u.Ma_PIN).trim() === pinInput.trim()
+    );
     if (user) {
       setCurrentUser(user);
       localStorage.setItem('erp_current_user', JSON.stringify(user));
       setPinInput('');
     } else {
-      showToast('Sai mã PIN! Thử lại (VD: 1111 hoặc 9999)', 'error');
+      showToast('Sai mật khẩu / mã PIN của nhân sự này!', 'error');
     }
   };
 
@@ -227,19 +231,48 @@ export default function App() {
             <Building2 size={28} />
           </div>
           <h1 className="text-xl font-bold text-center text-slate-800">NHẬT KÝ & VẬT TƯ HIỆN TRƯỜNG</h1>
-          <p className="text-xs text-center text-slate-500 mt-1 mb-6">Nhập mã PIN nhân sự để truy cập công trường</p>
+          <p className="text-xs text-center text-slate-500 mt-1 mb-5">Chọn tên nhân sự và nhập mật khẩu để truy cập</p>
+          
           <form onSubmit={handleLogin} className="space-y-4">
-            <input
-              type="password"
-              inputMode="numeric"
-              placeholder="Nhập mã PIN (VD: 1111)"
-              value={pinInput}
-              onChange={(e) => setPinInput(e.target.value)}
-              className="w-full text-center text-2xl tracking-widest font-bold border-2 border-slate-200 rounded-xl py-3 focus:border-blue-800 outline-none"
-              autoFocus
-            />
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">Tài khoản nhân sự</label>
+              <select
+                value={selectedUserId || (masterData.nguoiDung[0]?.Ma_NV || '')}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                className="w-full border-2 border-slate-200 rounded-xl p-3 text-sm font-semibold text-slate-800 bg-white focus:border-blue-800 outline-none"
+              >
+                {masterData.nguoiDung.map((u) => (
+                  <option key={u.Ma_NV} value={u.Ma_NV}>
+                    {u.Ho_Ten} ({u.Vai_Tro})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">Mật khẩu / Mã PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                placeholder="Nhập mật khẩu..."
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value)}
+                className="w-full text-center text-xl tracking-widest font-bold border-2 border-slate-200 rounded-xl py-2.5 focus:border-blue-800 outline-none"
+                autoFocus
+              />
+            </div>
+
             <button type="submit" className="w-full bg-blue-900 text-white font-semibold py-3 rounded-xl active:scale-95 transition">
               Đăng nhập
+            </button>
+
+            <button
+              type="button"
+              onClick={fetchMasterData}
+              className="w-full text-xs text-blue-700 font-medium py-1 flex items-center justify-center gap-1 hover:underline"
+            >
+              <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+              Cập nhật danh sách nhân sự từ Google Sheets
             </button>
           </form>
         </div>
@@ -392,18 +425,103 @@ function NavButton({ active, onClick, icon, label, badge }) {
 }
 
 // ============================================================================
-// COMPONENT 1: FORM NHẬT KÝ THI CÔNG HIỆN TRƯỜNG
+// COMPONENT 1: FORM NHẬT KÝ THI CÔNG 4 MỤC (HỖ TRỢ UPDATE NỐI TIẾP TRONG NGÀY)
 // ============================================================================
-function DailyLogForm({ project, user, onSubmit }) {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [weather, setWeather] = useState('Sáng nắng, chiều râm mát');
+function DailyLogForm({ project, projectObj, user, nhatKyList, onSubmit }) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [date, setDate] = useState(todayStr);
+
+  // Mục 2: Điều kiện thi công (Thời tiết Sáng / Chiều / Tối + Thời gian mưa)
+  const [weather, setWeather] = useState({
+    sang: 'Nắng',
+    chieu: 'Râm mát',
+    toi: 'Râm mát',
+    thoi_gian_mua: ''
+  });
+
+  // Mục 3: Nhân sự & Thiết bị
+  const [personnel, setPersonnel] = useState({
+    cht: 1,
+    cbkt: 2,
+    cbatld: 1,
+    doi_truong: 1,
+    cong_nhan: 12
+  });
+  const [equipments, setEquipments] = useState([{ ten: '', sl: 1 }]);
+
+  // Mục 4: Nội dung công việc, khó khăn, đề xuất, sự cố
   const [tasks, setTasks] = useState([{ hang_muc: '', kl: '' }]);
-  const [kySu, setKySu] = useState(2);
-  const [congNhan, setCongNhan] = useState(12);
-  const [mayMoc, setMayMoc] = useState('');
-  const [kienNghi, setKienNghi] = useState('');
-  const [images, setImages] = useState([]);
+  const [khoKhanSuCo, setKhoKhanSuCo] = useState('');
+
+  // Ảnh hiện trường (Ảnh đã lưu trên Drive + Ảnh mới chụp thêm)
+  const [existingUrls, setExistingUrls] = useState([]);
+  const [newImages, setNewImages] = useState([]);
   const fileRef = useRef();
+
+  // Tự động kiểm tra xem ngày đang chọn đã có nhật ký chưa để nạp lên cho phép Update tiếp
+  useEffect(() => {
+    const found = (nhatKyList || []).find(
+      (n) => n.Ma_Du_An === project && String(n.Ngay_Thi_Cong).startsWith(date)
+    );
+
+    if (found) {
+      // Nạp thời tiết
+      try {
+        const w = typeof found.Thoi_Tiet === 'string' && found.Thoi_Tiet.startsWith('{')
+          ? JSON.parse(found.Thoi_Tiet)
+          : { sang: found.Thoi_Tiet || 'Nắng', chieu: 'Râm mát', toi: 'Râm mát', thoi_gian_mua: '' };
+        setWeather({ sang: 'Nắng', chieu: 'Râm mát', toi: 'Râm mát', thoi_gian_mua: '', ...w });
+      } catch {}
+
+      // Nạp nhân sự & thiết bị
+      try {
+        const res = typeof found.Nhan_Luc_May_Moc === 'string'
+          ? JSON.parse(found.Nhan_Luc_May_Moc)
+          : (found.Nhan_Luc_May_Moc || {});
+        setPersonnel({
+          cht: res.cht ?? 1,
+          cbkt: res.cbkt ?? (res.ky_su || 2),
+          cbatld: res.cbatld ?? 1,
+          doi_truong: res.doi_truong ?? 1,
+          cong_nhan: res.cong_nhan ?? 12
+        });
+        if (Array.isArray(res.thiet_bi) && res.thiet_bi.length > 0) {
+          setEquipments(res.thiet_bi);
+        } else {
+          setEquipments([{ ten: res.may || '', sl: 1 }]);
+        }
+      } catch {}
+
+      // Nạp công việc & khó khăn/sự cố
+      try {
+        const t = typeof found.Cong_Viec_Thuc_Hien === 'string'
+          ? JSON.parse(found.Cong_Viec_Thuc_Hien)
+          : found.Cong_Viec_Thuc_Hien;
+        if (Array.isArray(t) && t.length > 0) setTasks(t);
+      } catch {}
+
+      setKhoKhanSuCo(found.Kien_Nghi_Vuong_Mac || '');
+      const urls = String(found.Link_Anh_Hien_Truong || '').trim().split('\n').filter(Boolean);
+      setExistingUrls(urls);
+      setNewImages([]);
+    } else {
+      // Reset form trắng cho ngày mới chưa có dữ liệu
+      setWeather({ sang: 'Nắng', chieu: 'Râm mát', toi: 'Râm mát', thoi_gian_mua: '' });
+      setPersonnel({ cht: 1, cbkt: 2, cbatld: 1, doi_truong: 1, cong_nhan: 12 });
+      setEquipments([{ ten: '', sl: 1 }]);
+      setTasks([{ hang_muc: '', kl: '' }]);
+      setKhoKhanSuCo('');
+      setExistingUrls([]);
+      setNewImages([]);
+    }
+  }, [project, date, nhatKyList]);
+
+  const handleAddEq = () => setEquipments([...equipments, { ten: '', sl: 1 }]);
+  const handleEqChange = (idx, field, val) => {
+    const copy = [...equipments];
+    copy[idx][field] = val;
+    setEquipments(copy);
+  };
 
   const handleAddTask = () => setTasks([...tasks, { hang_muc: '', kl: '' }]);
   const handleTaskChange = (idx, field, val) => {
@@ -415,112 +533,244 @@ function DailyLogForm({ project, user, onSubmit }) {
   const handleCapture = async (e) => {
     const files = Array.from(e.target.files);
     const stamp = `${project} | ${new Date().toLocaleString('vi-VN')}`;
-    const compressed = await Promise.all(files.map(f => compressAndWatermarkImage(f, stamp)));
-    setImages(prev => [...prev, ...compressed]);
+    const compressed = await Promise.all(files.map((f) => compressAndWatermarkImage(f, stamp)));
+    setNewImages((prev) => [...prev, ...compressed]);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validTasks = tasks.filter(t => t.hang_muc.trim() !== '');
-    if (validTasks.length === 0) return alert('Vui lòng nhập ít nhất 1 công việc thực hiện!');
+    const validTasks = tasks.filter((t) => t.hang_muc.trim() !== '');
+    if (validTasks.length === 0) return alert('Vui lòng nhập ít nhất 1 nội dung công việc ở Mục 4!');
+
+    const validEq = equipments.filter((eq) => eq.ten.trim() !== '');
 
     const ok = await onSubmit('CREATE_DAILY_LOG', {
       Ma_Du_An: project,
       Ngay_Thi_Cong: date,
       Thoi_Tiet: weather,
+      Nhan_Luc_May_Moc: {
+        ...personnel,
+        thiet_bi: validEq
+      },
       Cong_Viec_Thuc_Hien: validTasks,
-      Nhan_Luc_May_Moc: { ky_su: kySu, cong_nhan: congNhan, may: mayMoc },
-      Kien_Nghi_Vuong_Mac: kienNghi,
-      imagesBase64: images,
+      Kien_Nghi_Vuong_Mac: khoKhanSuCo,
+      imagesBase64: newImages,
       Nguoi_Tao: `${user.Ma_NV} - ${user.Ho_Ten}`
     });
 
     if (ok) {
-      setTasks([{ hang_muc: '', kl: '' }]);
-      setKienNghi('');
-      setImages([]);
+      setNewImages([]);
     }
   };
 
-  return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
-      <h2 className="font-bold text-blue-950 text-base border-b pb-2">1. Nhật ký thi công ({project})</h2>
+  const isUpdating = existingUrls.length > 0 || (nhatKyList || []).some(
+    (n) => n.Ma_Du_An === project && String(n.Ngay_Thi_Cong).startsWith(date)
+  );
+  const weatherOptions = ['Nắng', 'Mưa', 'Râm mát'];
 
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="text-xs font-semibold text-slate-600">Ngày thi công</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border rounded-lg p-2 text-sm mt-1" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-600">Thời tiết</label>
-          <input type="text" value={weather} onChange={e => setWeather(e.target.value)} className="w-full border rounded-lg p-2 text-sm mt-1" />
-        </div>
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 shadow-sm space-y-5">
+      <div className="flex justify-between items-center border-b pb-2">
+        <h2 className="font-bold text-blue-950 text-base">Nhật ký thi công</h2>
+        {isUpdating && (
+          <span className="text-[11px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
+            Đang bổ sung ngày {date}
+          </span>
+        )}
       </div>
 
-      <div>
-        <div className="flex justify-between items-center mb-1">
-          <label className="text-xs font-semibold text-slate-600">Công việc & Khối lượng thực hiện</label>
-          <button type="button" onClick={handleAddTask} className="text-xs bg-blue-50 text-blue-800 font-bold px-2 py-1 rounded flex items-center gap-1">
-            <Plus size={14} /> Thêm việc
-          </button>
-        </div>
-        {tasks.map((t, i) => (
-          <div key={i} className="flex gap-1.5 mb-2">
+      {/* MỤC 1: NGÀY THI CÔNG & TÊN CÔNG TRÌNH */}
+      <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+        <div className="font-bold text-xs text-blue-900 uppercase">Mục 1. Thông tin chung</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs font-semibold text-slate-600">Ngày thi công</label>
             <input
-              type="text"
-              placeholder="Tên hạng mục / công việc..."
-              value={t.hang_muc}
-              onChange={e => handleTaskChange(i, 'hang_muc', e.target.value)}
-              className="flex-1 border rounded-lg p-2 text-sm"
-            />
-            <input
-              type="text"
-              placeholder="KL (VD: 4 bó)"
-              value={t.kl}
-              onChange={e => handleTaskChange(i, 'kl', e.target.value)}
-              className="w-24 border rounded-lg p-2 text-sm"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full border rounded-lg p-2 text-sm mt-1 bg-white"
             />
           </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        <div>
-          <label className="text-xs font-semibold text-slate-600">Kỹ sư (người)</label>
-          <input type="number" value={kySu} onChange={e => setKySu(e.target.value)} className="w-full border rounded-lg p-2 text-sm mt-1" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-600">Công nhân</label>
-          <input type="number" value={congNhan} onChange={e => setCongNhan(e.target.value)} className="w-full border rounded-lg p-2 text-sm mt-1" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-600">Máy thi công</label>
-          <input type="text" placeholder="Cẩu, kích..." value={mayMoc} onChange={e => setMayMoc(e.target.value)} className="w-full border rounded-lg p-2 text-sm mt-1" />
+          <div>
+            <label className="text-xs font-semibold text-slate-600">Tên công trình</label>
+            <input
+              type="text"
+              readOnly
+              value={projectObj?.Ten_Du_An || project}
+              className="w-full border rounded-lg p-2 text-sm mt-1 bg-slate-100 font-semibold text-slate-700"
+            />
+          </div>
         </div>
       </div>
 
-      <div>
-        <label className="text-xs font-semibold text-slate-600">Mục 7: Vật tư, thiết bị & Kiến nghị TVGS</label>
-        <textarea
-          rows="2"
-          placeholder="Nhập vướng mắc hiện trường hoặc đề nghị nghiệm thu..."
-          value={kienNghi}
-          onChange={e => setKienNghi(e.target.value)}
-          className="w-full border rounded-lg p-2 text-sm mt-1"
-        />
+      {/* MỤC 2: ĐIỀU KIỆN THI CÔNG (THỜI TIẾT SÁNG / CHIỀU / TỐI) */}
+      <div className="space-y-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+        <div className="font-bold text-xs text-blue-900 uppercase">Mục 2. Điều kiện thi công (Thời tiết)</div>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { key: 'sang', label: 'Buổi sáng' },
+            { key: 'chieu', label: 'Buổi chiều' },
+            { key: 'toi', label: 'Buổi tối' }
+          ].map((buoi) => (
+            <div key={buoi.key}>
+              <label className="text-xs font-semibold text-slate-600">{buoi.label}</label>
+              <select
+                value={weather[buoi.key]}
+                onChange={(e) => setWeather({ ...weather, [buoi.key]: e.target.value })}
+                className="w-full border rounded-lg p-2 text-xs font-semibold mt-1 bg-white"
+              >
+                {weatherOptions.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+
+        {(weather.sang === 'Mưa' || weather.chieu === 'Mưa' || weather.toi === 'Mưa' || weather.thoi_gian_mua) && (
+          <div>
+            <label className="text-xs font-semibold text-slate-600">Thời gian mưa (nếu có)</label>
+            <input
+              type="text"
+              placeholder="VD: Mưa rào từ 14h15 đến 15h30..."
+              value={weather.thoi_gian_mua}
+              onChange={(e) => setWeather({ ...weather, thoi_gian_mua: e.target.value })}
+              className="w-full border rounded-lg p-2 text-xs mt-1 bg-white"
+            />
+          </div>
+        )}
       </div>
 
-      <div>
+      {/* MỤC 3: NHÂN SỰ & THIẾT BỊ */}
+      <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+        <div className="font-bold text-xs text-blue-900 uppercase">Mục 3. Nhân sự và Thiết bị</div>
+
+        {/* 3.1 Nhân sự */}
+        <div>
+          <label className="text-xs font-semibold text-slate-600 block mb-1.5">1. Nhân sự trực tiếp (người)</label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { key: 'cht', label: 'CHT' },
+              { key: 'cbkt', label: 'CBKT' },
+              { key: 'cbatld', label: 'CB ATLĐ' },
+              { key: 'doi_truong', label: 'Đội trưởng' },
+              { key: 'cong_nhan', label: 'Công nhân' }
+            ].map((role) => (
+              <div key={role.key} className="bg-white border rounded-lg p-1.5">
+                <span className="text-[11px] text-slate-500 block">{role.label}</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={personnel[role.key]}
+                  onChange={(e) => setPersonnel({ ...personnel, [role.key]: Number(e.target.value) })}
+                  className="w-full font-bold text-sm text-slate-800 outline-none mt-0.5"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 3.2 Thiết bị */}
+        <div>
+          <div className="flex justify-between items-center mb-1">
+            <label className="text-xs font-semibold text-slate-600">2. Thiết bị thi công</label>
+            <button type="button" onClick={handleAddEq} className="text-xs bg-blue-100 text-blue-900 font-bold px-2 py-0.5 rounded flex items-center gap-0.5">
+              <Plus size={13} /> Thêm máy
+            </button>
+          </div>
+          {equipments.map((eq, i) => (
+            <div key={i} className="flex gap-1.5 mb-1.5">
+              <input
+                type="text"
+                placeholder="Tên thiết bị (VD: Cẩu 50T, Kích DUL...)"
+                value={eq.ten}
+                onChange={(e) => handleEqChange(i, 'ten', e.target.value)}
+                className="flex-1 border rounded-lg p-2 text-xs bg-white"
+              />
+              <input
+                type="number"
+                min="1"
+                placeholder="SL"
+                value={eq.sl}
+                onChange={(e) => handleEqChange(i, 'sl', Number(e.target.value))}
+                className="w-16 border rounded-lg p-2 text-xs text-center bg-white"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* MỤC 4: NỘI DUNG CÔNG VIỆC, KHÓ KHĂN, ĐỀ XUẤT, SỰ CỐ */}
+      <div className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+        <div className="font-bold text-xs text-blue-900 uppercase">Mục 4. Nội dung công việc & Vấn đề phát sinh</div>
+
+        <div>
+          <div className="flex justify-between items-center mb-1">
+            <label className="text-xs font-semibold text-slate-600">Công việc thi công hàng ngày</label>
+            <button type="button" onClick={handleAddTask} className="text-xs bg-blue-100 text-blue-900 font-bold px-2 py-0.5 rounded flex items-center gap-0.5">
+              <Plus size={13} /> Thêm việc
+            </button>
+          </div>
+          {tasks.map((t, i) => (
+            <div key={i} className="flex gap-1.5 mb-1.5">
+              <input
+                type="text"
+                placeholder="Nội dung công việc..."
+                value={t.hang_muc}
+                onChange={(e) => handleTaskChange(i, 'hang_muc', e.target.value)}
+                className="flex-1 border rounded-lg p-2 text-xs bg-white"
+              />
+              <input
+                type="text"
+                placeholder="Khối lượng"
+                value={t.kl}
+                onChange={(e) => handleTaskChange(i, 'kl', e.target.value)}
+                className="w-24 border rounded-lg p-2 text-xs bg-white"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-slate-600">Khó khăn, đề xuất, sự cố (nếu có)</label>
+          <textarea
+            rows="3"
+            placeholder="Ghi nhận khó khăn, đề xuất TVGS hoặc sự cố phát sinh trong ngày..."
+            value={khoKhanSuCo}
+            onChange={(e) => setKhoKhanSuCo(e.target.value)}
+            className="w-full border rounded-lg p-2 text-xs mt-1 bg-white"
+          />
+        </div>
+      </div>
+
+      {/* CHỤP ẢNH HIỆN TRƯỜNG (CÓ THỂ UPLOAD NHIỀU LẦN TRONG NGÀY) */}
+      <div className="space-y-2">
         <input type="file" accept="image/*" capture="environment" multiple ref={fileRef} onChange={handleCapture} className="hidden" />
-        <button type="button" onClick={() => fileRef.current.click()} className="w-full border-2 border-dashed border-blue-300 bg-blue-50/50 text-blue-900 font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm">
-          <Camera size={18} /> Chụp ảnh hiện trường ({images.length} ảnh)
+        <button
+          type="button"
+          onClick={() => fileRef.current.click()}
+          className="w-full border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-900 font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 text-xs"
+        >
+          <Camera size={18} /> Chụp / Tải thêm ảnh hiện trường ({newImages.length} ảnh mới)
         </button>
-        {images.length > 0 && (
+
+        {existingUrls.length > 0 && (
+          <div className="text-[11px] text-emerald-700 font-medium bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+            ✓ Đã có {existingUrls.length} ảnh lưu trên Drive trong ngày hôm nay (ảnh mới chụp sẽ được nối tiếp vào hồ sơ).
+          </div>
+        )}
+
+        {newImages.length > 0 && (
           <div className="flex gap-2 mt-2 overflow-x-auto">
-            {images.map((src, idx) => (
+            {newImages.map((src, idx) => (
               <div key={idx} className="relative shrink-0">
                 <img src={src} alt="preview" className="w-20 h-20 object-cover rounded-lg border" />
-                <button type="button" onClick={() => setImages(images.filter((_, i) => i !== idx))} className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setNewImages(newImages.filter((_, i) => i !== idx))}
+                  className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full p-0.5"
+                >
                   <Trash2 size={12} />
                 </button>
               </div>
@@ -530,7 +780,7 @@ function DailyLogForm({ project, user, onSubmit }) {
       </div>
 
       <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow">
-        <Send size={18} /> Gửi Nhật ký lên hệ thống
+        <Send size={18} /> {isUpdating ? 'Cập nhật bổ sung Nhật ký' : 'Gửi Nhật ký lên hệ thống'}
       </button>
     </form>
   );
@@ -595,7 +845,7 @@ function MaterialRequestForm({ project, user, vatTuList, onSubmit }) {
 
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
-      <h2 className="font-bold text-blue-950 text-base border-b pb-2">2. Phiếu Vật tư ({project})</h2>
+      <h2 className="font-bold text-blue-950 text-base border-b pb-2">2. Phiếu Vật tư</h2>
 
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => setLoai('YEU_CAU_VAT_TU')} className={`py-2 rounded-lg text-xs font-bold border ${loai === 'YEU_CAU_VAT_TU' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-700'}`}>
@@ -726,28 +976,72 @@ function EquipmentTransferForm({ project, user, duAnList, thietBiList, onSubmit 
 }
 
 // ============================================================================
-// COMPONENT 4: LỊCH SỬ HỒ SƠ & IN PDF KHỔ A4 CHUẨN NGHỊ ĐỊNH
+// COMPONENT 4: LỊCH SỬ HỒ SƠ & IN PDF KHỔ A4 CHUẨN NGHỊ ĐỊNH (ĐÃ LỌC GỌN)
 // ============================================================================
 function DocumentArchive({ project, nhatKyList, giaoDichList, onPrint }) {
-  const projectLogs = nhatKyList.filter(n => n.Ma_Du_An === project);
-  const projectTx = giaoDichList.filter(g => g.Den_Kho === project || g.Tu_Kho === project);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const keyword = searchTerm.trim().toLowerCase();
+
+  const projectLogs = nhatKyList
+    .filter((n) => n.Ma_Du_An === project)
+    .filter((n) =>
+      !keyword ||
+      String(n.Ma_Nhat_Ky || '').toLowerCase().includes(keyword) ||
+      String(n.Ngay_Thi_Cong || '').toLowerCase().includes(keyword)
+    );
+
+  const projectTx = giaoDichList
+    .filter((g) => g.Den_Kho === project || g.Tu_Kho === project)
+    .filter((g) =>
+      !keyword ||
+      String(g.Ma_Phieu || '').toLowerCase().includes(keyword) ||
+      String(g.Ma_Doi_Tuong || '').toLowerCase().includes(keyword) ||
+      String(g.Ngay_Chung_Tu || '').toLowerCase().includes(keyword)
+    );
+
+  const renderStatusBadge = (status) => {
+    if (status === 'Da_Duyet') {
+      return <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">Đã duyệt</span>;
+    }
+    if (status === 'Tu_Choi') {
+      return <span className="text-[10px] bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded">Từ chối</span>;
+    }
+    return <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">Chờ duyệt</span>;
+  };
 
   return (
     <div className="space-y-4">
+      {/* Ô tìm kiếm nhanh hồ sơ theo ngày hoặc mã */}
+      <input
+        type="text"
+        placeholder="Tìm nhanh theo ngày (VD: 2026-11-24) hoặc mã phiếu..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs shadow-sm outline-none focus:border-blue-800"
+      />
+
+      {/* DANH SÁCH NHẬT KÝ THI CÔNG */}
       <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
-        <h2 className="font-bold text-blue-950 text-sm border-b pb-2">Nhật ký thi công gần đây ({project})</h2>
+        <div className="flex justify-between items-center border-b pb-2">
+          <h2 className="font-bold text-blue-950 text-sm">Nhật ký thi công gần đây</h2>
+          <span className="text-[11px] text-slate-400 font-medium">{projectLogs.length} bản ghi</span>
+        </div>
+
         {projectLogs.length === 0 ? (
-          <p className="text-xs text-slate-500 py-2">Chưa có nhật ký nào được đồng bộ.</p>
+          <p className="text-xs text-slate-500 py-2">Không có nhật ký nào phù hợp.</p>
         ) : (
-          projectLogs.map(log => (
-            <div key={log.Ma_Nhat_Ky} className="flex justify-between items-center border-b py-2 last:border-0">
-              <div>
-                <div className="font-bold text-xs text-slate-800">{log.Ma_Nhat_Ky}</div>
-                <div className="text-[11px] text-slate-500">Ngày: {log.Ngay_Thi_Cong} • {log.Thoi_Tiet}</div>
+          projectLogs.map((log) => (
+            <div key={log.Ma_Nhat_Ky} className="flex justify-between items-center border-b py-2.5 last:border-0 gap-2">
+              <div className="min-w-0">
+                <div className="font-bold text-xs text-slate-800 truncate">{log.Ma_Nhat_Ky}</div>
+                <div className="text-[11px] text-slate-500 truncate">
+                  Ngày: {log.Ngay_Thi_Cong} • {log.Thoi_Tiet}
+                </div>
               </div>
               <button
                 onClick={() => onPrint('NHAT_KY', log)}
-                className="bg-blue-50 text-blue-900 border border-blue-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                className="shrink-0 bg-blue-50 text-blue-900 border border-blue-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 transition"
               >
                 <Printer size={14} /> Xuất A4
               </button>
@@ -756,20 +1050,30 @@ function DocumentArchive({ project, nhatKyList, giaoDichList, onPrint }) {
         )}
       </div>
 
+      {/* DANH SÁCH PHIẾU VẬT TƯ & ĐIỀU CHUYỂN */}
       <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
-        <h2 className="font-bold text-blue-950 text-sm border-b pb-2">Phiếu Vật tư & Điều chuyển ({project})</h2>
+        <div className="flex justify-between items-center border-b pb-2">
+          <h2 className="font-bold text-blue-950 text-sm">Phiếu Vật tư & Điều chuyển</h2>
+          <span className="text-[11px] text-slate-400 font-medium">{projectTx.length} phiếu</span>
+        </div>
+
         {projectTx.length === 0 ? (
-          <p className="text-xs text-slate-500 py-2">Chưa có phiếu phát sinh.</p>
+          <p className="text-xs text-slate-500 py-2">Không có phiếu nào phù hợp.</p>
         ) : (
-          projectTx.map(tx => (
-            <div key={tx.Ma_Phieu} className="flex justify-between items-center border-b py-2 last:border-0">
-              <div>
-                <div className="font-bold text-xs text-slate-800">{tx.Ma_Phieu} ({tx.Trang_Thai_Duyet})</div>
-                <div className="text-[11px] text-slate-500">{tx.Ma_Doi_Tuong} • SL: {tx.So_Luong}</div>
+          projectTx.map((tx) => (
+            <div key={tx.Ma_Phieu} className="flex justify-between items-center border-b py-2.5 last:border-0 gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-bold text-xs text-slate-800">{tx.Ma_Phieu}</span>
+                  {renderStatusBadge(tx.Trang_Thai_Duyet)}
+                </div>
+                <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                  {tx.Ma_Doi_Tuong} • SL: <strong className="text-slate-700">{tx.So_Luong}</strong> ({tx.Ngay_Chung_Tu})
+                </div>
               </div>
               <button
                 onClick={() => onPrint('PHIEU', tx)}
-                className="bg-emerald-50 text-emerald-900 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                className="shrink-0 bg-emerald-50 text-emerald-900 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 transition"
               >
                 <Printer size={14} /> Xuất A4
               </button>
@@ -844,9 +1148,13 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
   let tasks = [];
   let resources = {};
 
+  let weatherObj = { sang: '', chieu: '', toi: '', thoi_gian_mua: '' };
   if (type === 'NHAT_KY') {
-    try { tasks = typeof item.Cong_Viec_Thuc_Hien === 'string' ? JSON.parse(item.Cong_Viec_Thuc_Hien) : item.Cong_Viec_Thuc_Hien; } catch {}
-    try { resources = typeof item.Nhan_Luc_May_Moc === 'string' ? JSON.parse(item.Nhan_Luc_May_Moc) : item.Nhan_Luc_May_Moc; } catch {}
+    try {
+      weatherObj = typeof item.Thoi_Tiet === 'string' && item.Thoi_Tiet.startsWith('{')
+        ? JSON.parse(item.Thoi_Tiet)
+        : { sang: item.Thoi_Tiet || '', chieu: '', toi: '', thoi_gian_mua: '' };
+    } catch {}
   }
 
   return (
@@ -882,21 +1190,43 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
             <h1 className="text-center font-bold text-base uppercase mt-2">NHẬT KÝ THI CÔNG XÂY DỰNG CÔNG TRÌNH</h1>
             <p className="text-center italic text-xs mb-4">(Theo Nghị định số 06/2021/NĐ-CP của Chính phủ)</p>
 
-            <div className="space-y-1.5 text-xs mb-4">
-              <div><strong>1. Công trình / Dự án:</strong> {projectInfo.Ten_Du_An} ({projectInfo.Ma_Du_An})</div>
-              <div><strong>2. Ngày thi công:</strong> {item.Ngay_Thi_Cong} — <strong>Mã số:</strong> {item.Ma_Nhat_Ky}</div>
-              <div><strong>3. Điều kiện thời tiết:</strong> {item.Thoi_Tiet}</div>
+            {/* MỤC 1 */}
+            <div className="space-y-1 text-xs mb-3">
+              <div><strong>Mục 1. Tên công trình:</strong> {projectInfo.Ten_Du_An} ({projectInfo.Ma_Du_An})</div>
+              <div className="pl-3"><strong>Ngày thi công:</strong> {item.Ngay_Thi_Cong} — <strong>Mã nhật ký:</strong> {item.Ma_Nhat_Ky}</div>
+            </div>
+
+            {/* MỤC 2 */}
+            <div className="space-y-1 text-xs mb-3">
               <div>
-                <strong>4. Nhân lực & Thiết bị thi công:</strong> Kỹ sư: {resources.ky_su || 0} người; Công nhân: {resources.cong_nhan || 0} người; Máy móc: {resources.may || 'Theo dây chuyền'}.
+                <strong>Mục 2. Điều kiện thi công (Thời tiết):</strong> Sáng: {weatherObj.sang || '---'}; Chiều: {weatherObj.chieu || '---'}; Tối: {weatherObj.toi || '---'}.
+              </div>
+              {weatherObj.thoi_gian_mua && (
+                <div className="pl-3"><strong>Thời gian mưa:</strong> {weatherObj.thoi_gian_mua}</div>
+              )}
+            </div>
+
+            {/* MỤC 3 */}
+            <div className="space-y-1.5 text-xs mb-3">
+              <div><strong>Mục 3. Nhân sự và Thiết bị thi công:</strong></div>
+              <div className="pl-3">
+                - <em>Nhân sự:</em> CHT: {resources.cht ?? 0}; CBKT: {resources.cbkt ?? (resources.ky_su || 0)}; CB ATLĐ: {resources.cbatld ?? 0}; Đội trưởng: {resources.doi_truong ?? 0}; Công nhân: {resources.cong_nhan ?? 0} người.
+              </div>
+              <div className="pl-3">
+                - <em>Thiết bị thi công:</em>{' '}
+                {Array.isArray(resources.thiet_bi) && resources.thiet_bi.length > 0
+                  ? resources.thiet_bi.map((eq) => `${eq.ten} (${eq.sl})`).join(', ')
+                  : (resources.may || 'Theo dây chuyền thi công')}
               </div>
             </div>
 
-            <div className="font-bold text-xs mb-1">5. Tình hình thi công & Khối lượng thực hiện trong ngày:</div>
-            <table className="w-full border-collapse border border-black text-xs mb-4">
+            {/* MỤC 4 */}
+            <div className="font-bold text-xs mb-1">Mục 4. Nội dung công việc thi công & Vấn đề phát sinh:</div>
+            <table className="w-full border-collapse border border-black text-xs mb-3">
               <thead>
                 <tr className="bg-gray-100">
                   <th className="border border-black p-1.5 w-10">STT</th>
-                  <th className="border border-black p-1.5 text-left">Nội dung công việc / Hạng mục thi công</th>
+                  <th className="border border-black p-1.5 text-left">Nội dung công việc thi công hàng ngày</th>
                   <th className="border border-black p-1.5 w-28">Khối lượng</th>
                 </tr>
               </thead>
@@ -912,8 +1242,8 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
             </table>
 
             <div className="text-xs mb-6">
-              <strong>6. Tình hình vật tư, thiết bị & Kiến nghị với Tư vấn giám sát (TVGS):</strong>
-              <p className="mt-1 border border-black p-2 min-h-[48px]">{item.Kien_Nghi_Vuong_Mac || 'Bình thường, đảm bảo tiến độ và chất lượng theo hồ sơ thiết kế.'}</p>
+              <strong>Khó khăn, đề xuất, sự cố trong ngày:</strong>
+              <p className="mt-1 border border-black p-2 min-h-[48px]">{item.Kien_Nghi_Vuong_Mac || 'Thi công bình thường, đảm bảo an toàn và tiến độ.'}</p>
             </div>
 
             <div className="grid grid-cols-2 text-center text-xs mt-8">
@@ -929,59 +1259,4 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
               </div>
             </div>
           </>
-        ) : (
-          <>
-            <h1 className="text-center font-bold text-base uppercase mt-2">
-              {item.Loai_Giao_Dich === 'DIEU_CHUYEN' ? 'LỆNH ĐIỀU CHUYỂN THIẾT BỊ / VẬT TƯ' : 'PHIẾU ĐỀ XUẤT / XÁC NHẬN VẬT TƯ'}
-            </h1>
-            <p className="text-center text-xs mb-4">Số phiếu: <strong>{item.Ma_Phieu}</strong> — Ngày: {item.Ngay_Chung_Tu}</p>
-
-            <div className="space-y-2 text-xs mb-4">
-              <div><strong>Dự án / Công trường nhận:</strong> {item.Den_Kho}</div>
-              <div><strong>Kho / Công trường xuất:</strong> {item.Tu_Kho || 'Kho Tổng / Nhà cung cấp'}</div>
-              <div><strong>Người lập phiếu:</strong> {item.Nguoi_Tao}</div>
-              <div><strong>Trạng thái phê duyệt:</strong> {item.Trang_Thai_Duyet}</div>
-            </div>
-
-            <table className="w-full border-collapse border border-black text-xs mb-4">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="border border-black p-1.5 w-10">STT</th>
-                  <th className="border border-black p-1.5 text-left">Mã Vật tư / Thiết bị</th>
-                  <th className="border border-black p-1.5 w-24">Số lượng</th>
-                  <th className="border border-black p-1.5 text-left">Ghi chú / Hạng mục</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="border border-black p-1.5 text-center">1</td>
-                  <td className="border border-black p-1.5 font-bold">{item.Ma_Doi_Tuong}</td>
-                  <td className="border border-black p-1.5 text-center font-bold">{item.So_Luong}</td>
-                  <td className="border border-black p-1.5">{item.Ghi_Chu_Anh || ''}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div className="grid grid-cols-3 text-center text-xs mt-8">
-              <div>
-                <div className="font-bold uppercase">NGƯỜI LẬP PHIẾU</div>
-                <div className="italic text-[11px]">(Ký, ghi rõ họ tên)</div>
-                <div className="h-20"></div>
-              </div>
-              <div>
-                <div className="font-bold uppercase">THỦ KHO / CHỈ HUY TRƯỞNG</div>
-                <div className="italic text-[11px]">(Ký, ghi rõ họ tên)</div>
-                <div className="h-20"></div>
-              </div>
-              <div>
-                <div className="font-bold uppercase">BAN GIÁM ĐỐC DUYỆT</div>
-                <div className="italic text-[11px]">(Ký, đóng dấu)</div>
-                <div className="h-20"></div>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
+        ) : ( ... )}
