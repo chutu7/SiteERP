@@ -1171,7 +1171,7 @@ function PrintA4Modal({ doc, projectInfo, onClose }) {
     <div className="fixed inset-0 bg-black/75 z-50 overflow-y-auto p-2 flex flex-col items-center">
       {/* Thanh công cụ trên cùng (ẩn khi in) */}
       <div className="w-full max-w-2xl bg-slate-800 text-white p-3 rounded-t-xl flex justify-between items-center no-print">
-        <span className="text-xs font-bold">Xem trước bản in khổ A4 (Bấm In > Lưu thành PDF để gửi Zalo)</span>
+        <span className="text-xs font-bold">Xem trước bản in khổ A4 (Bấm In Rồi Lưu thành PDF để gửi Zalo)</span>
         <div className="flex gap-2">
           <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1">
             <Printer size={15} /> In / Lưu PDF
